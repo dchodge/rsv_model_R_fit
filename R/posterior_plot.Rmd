@@ -5,71 +5,76 @@ date: "25/09/2020"
 output: html_document
 ---
 
+## 1. Load in libraries and file path.
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
 # may need to install these
 library(Rcpp)       # For c++ integration
 library(RcppEigen)  # Ditto
-library(tidyverse)  # df manipulation
-library(gridExtra)
-
+library(tidyverse)  # For dataframe manipulation
+library(gridExtra)  # For plotting purposess 
+library(reshape2)
 file.path = '~/documents/ptmc/rsv_model' # change as appropriate
 
 ```
 
-## Load the data, posteriors and model
+## 2. Load the data, posteriors and model.
 
 ```{r}
 
 # Load in data
 load(file=paste0(file.path, '/Rdata/posteriors.Rda')) # The posteriors from the true model
-load(file=paste0(file.path, '/Rdata/rsv_data.Rda'))   # Load in model data, including observation data (which is made up (not the same as I used in the paper).
+load(file=paste0(file.path, '/Rdata/rsv_data.Rda'))   # Load in model data, including observation data (which is made up i.e. not the same as I used in the paper).
 
 # Load in the epidemic model from c++ and update important parameters
 # Need to have boost installed on computer. Can install via homebrew.
+# Might throw loads of [-Wunknown-pragmas] warnings, just ignore, usually an issue with the coompiler.
 sourceCpp(paste0(file.path, "/src/logLikelihoodModule.cpp")) # ensure c++14 is enabled
-classEvaluateLogLikelihood <- new(EvaluateLogLikelihood, numberDailyLiveBirths, population, ageGroupBoundary) # Calls class
-classEvaluateLogLikelihood$contactMatrixPhy <- contactMatrixPhy # Physical contact matrix (25 x 25)
-classEvaluateLogLikelihood$contactMatrixCon <- contactMatrixCon # Conversational contact matrix (25 x 25)
+classEvaluateLogLikelihood <- new(EvaluateLogLikelihood, numberDailyLiveBirths, population, ageGroupBoundary) # Calls cpp class
+classEvaluateLogLikelihood$contactMatrixPhy <- contactMatrixPhy # Physical contact matrix 
+classEvaluateLogLikelihood$contactMatrixCon <- contactMatrixCon # Conversational contact matrix 
 classEvaluateLogLikelihood$observedData <- as.matrix(observationalData) 
 classEvaluateLogLikelihood$lowerParamSupport <- fit.par$lowerParSupport # lower support of parameters 
 classEvaluateLogLikelihood$upperParamSupport <- fit.par$upperParSupport # upper support of parameters 
 classEvaluateLogLikelihood$run_full <- nrow(observationalData)*7       # number of days to fit the data and model to
 
-
 ```
 
-## Generate images in figs folder
+## 3. Generate images in figs folder
+### 3.1 Load in helper functions
 
 ```{r}
 
-# Function to run a sample
-#classEvaluateLogLikelihood$getWeeklySampleCpp(pars, bool), run this function with a vector of parameters (pars) to get the incidence output
+# load in some extra plot helpers (run_sample)
+source(paste0(file.path, "/R/plot_helpers.R"))
 
-# run_sample: runs the model with 1000 random samples from the posterior, outputs the median, and 95% confidence intervals for the weekly incidence per age group
-# post: the posterior samples as imported (post)
-# bool: flag to output the model multipled by the ascertainment probablility (epsilon). If FALSE then outputs the true predicted values.
-run_sample <- function(post, bool)
-{
-  a <- rep(NA, 25*(52*7)*1000)
-  arr <- array(a, c(52*7, 25,  1000))
-  
-  for (i in 1:1000)
-  {
-    j <- rdunif(1, 1, nrow(post))
-    arr[,, i] <- classEvaluateLogLikelihood$getWeeklySampleCpp(as.numeric(post[j,]), bool)
-  }
-  out <- lapply(1:25, function(y) sapply(1:(52*7), function(x) sort(arr[x,y,])[c(25, 500 , 975)]))  
-  out
+```
+
+### 3.2 Plot the poseterior distirbutions
+
+```{r}
+
+post_long <- melt(post)
+for (p in 1:length(fit.par$namesOfParameters)){
+  post_long_par <- post_long %>% filter(variable==fit.par$namesOfParameters[p])
+  ggplot(post_long_par, aes(x=value)) + 
+    geom_histogram() + labs(title=paste0("Posterior sample for ",fit.par$namesOfParameters[p] ))
+  ggsave(paste0(file.path, "/figs/posteriors/", fit.par$namesOfParameters[p], ".pdf"))
 }
+```
 
+### 3.3 Plot the weekly incidences using the posterior samples.
 
-est_ep <- run_sample(post, TRUE)# Predicted number of positive samples (useful for comparing the model-predicted incidnce with the data)
+```{r}
+
+## run_sample is in plot_helpers.R file
+est_ep <- run_sample(post, TRUE)# Predicted number of positive samples (useful for comparing the model-predicted incidence with the data)
 est <- run_sample(post, FALSE)  # Predicted incidence
 
-# Output the figs for the 25 age groups
-for (a in 1:25){
+# Output the figs for each age group
+for (a in 1:ageGroupNumber){
   dataplot <- data.frame(model_m=est_ep[[a]][2,], model_l=est_ep[[a]][1,], model_u=est_ep[[a]][3,], data=observationalData[,a+1], time=c(1:(52*7)))
   
   ggplot() +
@@ -78,14 +83,14 @@ for (a in 1:25){
     geom_line(data = dataplot, aes(x = time, y = model_l), color = 'red', size=0.4, alpha=0.5) +
     geom_line(data = dataplot, aes(x = time, y = model_u), color = 'red', size=0.4, alpha=0.5) +
     geom_ribbon(data = dataplot, aes(x = time, ymin=model_l, ymax=model_u), fill="red", alpha=0.5) + 
-    scale_colour_manual(name = 'Hello', values =c('black'='black','red'='red'), labels = c('Data','Model')) + 
-    xlab('Week') + ylab('Estimated number of weekly new infections') + ggtitle(paste("Age group", a))
+    scale_colour_manual(name = 'Hello', values =c('black'='black','red'='red'), labels = c('Observational data','Model-predicted')) + 
+    xlab('Week') + ylab('Estimated number of weekly new positive samples') + ggtitle(paste("Age group", a))
   
   ggsave(paste0(file.path, "/figs/compar/inci_", a, ".pdf"))
 }
 
-# Output the figs for the 25 age groups
-for (a in 1:25){
+# Output the figs for each age group
+for (a in 1:ageGroupNumber){
   dataplot <- data.frame(model_m=est[[a]][2,], model_l=est[[a]][1,], model_u=est[[a]][3,], time=c(1:(52*7)))
   
   ggplot() +
@@ -100,27 +105,12 @@ for (a in 1:25){
 
 ```
 
-## Annual incidence plots
+### 3.3 Plot the annual incidences using the posterior samples.
 
 ```{r pressure, echo=FALSE}
 
-# run_sample_annual: runs the model with 1000 random samples from the posterior, outputs the median, and 95% confidence intervals for the annual incidence per age group
-run_sample_annual <- function(post)
-{
-  a <- rep(NA, 25*1000)
-  arr <- array(a, c(25,  1000))
-  
-  for (i in 1:1000)
-  {
-    j <- rdunif(1, 1, nrow(post))
-    arr[, i] <- classEvaluateLogLikelihood$getAnnualIncidenceCpp(as.numeric(post[j,]))
-  }
-  out <- sapply(1:25, function(s ) sort(arr[s,])[c(25, 500 , 975)])
-  out
-}
-
 ann_est <- run_sample_annual(post)
-dataplot <- data.frame(model_m=ann_est[2,], model_l=ann_est[1,], model_u=ann_est[3,], age=1:25)
+dataplot <- data.frame(model_m=ann_est[2,], model_l=ann_est[1,], model_u=ann_est[3,], age=1:ageGroupNumber)
 
 # Output the annual incidence fig
 ggplot() + 
@@ -128,7 +118,7 @@ ggplot() +
   geom_line(data = dataplot, aes(x = age, y = model_l), color = 'red', size=0.4, alpha=0.5) +
   geom_line(data = dataplot, aes(x = age, y = model_u), color = 'red', size=0.4, alpha=0.5) +
   geom_ribbon(data = dataplot, aes(x = age, ymin=model_l, ymax=model_u), fill="red", alpha=0.5) + 
-  xlab('Week') + ylab('Proportion of age group who acquire infection') + ggtitle("Annual incidence")
+  xlab('Age group') + ylab('Proportion of age group who acquire infection  annually') + ggtitle("Annual incidence")
 
 ggsave(paste0(file.path, "/figs/inci_all.pdf"))
 

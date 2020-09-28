@@ -18,7 +18,7 @@ using namespace std;
 using namespace Eigen;
 using namespace asc;
 
-// stuff for random number generation
+// Stuff for random number generation
 std::random_device dev;
 std::mt19937 engine(dev());
 typedef boost::mt19937 PRNG_s;

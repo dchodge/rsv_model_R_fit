@@ -6,9 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,
-                      root.dir='~/documents/ptmc/calibration/'
-                      )
+knitr::opts_chunk$set(echo = TRUE)
 ```
 
 # 1. Setup 
@@ -27,8 +25,6 @@ library(doParallel)
 library(BayesianTools)
 
 file.path = '~/documents/ptmc/rsv_model' # change as appropriate
-
-#setwd("~/documents/ptmc/calibration")
 source(paste0(file.path, '/src/helpers.R')) # some important helper functions
 ```
 
@@ -43,7 +39,7 @@ load(file=paste0(file.path, '/Rdata/rsv_data.Rda'))   # Load in model data, incl
 
 ## 3. Import that model from the cpp file and update the parameter values 
 Once the data is loaded import the model from cpp and change the parameter values.
-Need to link install boost (easiest to do via homebrew), might throw loads of [-Wunknown-pragmas] errors, just ignore, usually an issue with the coompiler.
+Need to link install boost (easiest to do via homebrew), might throw loads of [-Wunknown-pragmas] warnings, just ignore, usually an issue with the coompiler.
 ```{r}
 
 sourceCpp(paste0(file.path, "/src/logLikelihoodModule.cpp")) # ensure c++14 is enabled
@@ -73,7 +69,7 @@ llikelihood = function(params){
 # Get the log priors (density and samplers)
 density = function(params){
   p = 0
-  for (i in 1:25){
+  for (i in 1:length(fit.par$namesOfParameters)){
       if (params[i] < fit.par$lowerParSupport[i] || params[i] > fit.par$upperParSupport[i]){
           return(log(0))
       }
@@ -86,7 +82,7 @@ density = function(params){
 
 sampler = function(n=1){
     s <- vector()
-    for (i in 1:25){
+    for (i in 1:length(fit.par$namesOfParameters)){
       s[i] <- prior.sample(fit.par$lowerParSupport[i], fit.par$upperParSupport[i], priorDistSample[[i]], priorDistPar1[i], priorDistPar2[i])
     }
     s

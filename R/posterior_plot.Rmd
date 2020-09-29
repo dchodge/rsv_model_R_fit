@@ -56,10 +56,12 @@ source(paste0(file.path, "/R/plot_helpers.R"))
 
 ```{r}
 
+classEvaluateLogLikelihood$getWeeklySampleCpp(as.numeric(post[1,]), TRUE)
+
 post_long <- melt(post)
 for (p in 1:length(fit.par$namesOfParameters)){
   post_long_par <- post_long %>% filter(variable==fit.par$namesOfParameters[p])
-  ggplot(post_long_par, aes(x=value)) + 
+  ggplot(post_long_par, aes(x=value)) + ßß
     geom_histogram() + labs(title=paste0("Posterior sample for ",fit.par$namesOfParameters[p] ))
   ggsave(paste0(file.path, "/figs/posteriors/", fit.par$namesOfParameters[p], ".pdf"))
 }
@@ -105,7 +107,7 @@ for (a in 1:ageGroupNumber){
 
 ```
 
-### 3.3 Plot the annual incidences using the posterior samples.
+### 3.4 Plot the annual incidences using the posterior samples.
 
 ```{r pressure, echo=FALSE}
 
@@ -123,4 +125,17 @@ ggplot() +
 ggsave(paste0(file.path, "/figs/inci_all.pdf"))
 
 ```
+### 3.5 Plot the proportion of infants born with protection
 
+```{r}
+
+pRoutput <- run_sample_maternal_protected(post)
+pR <- data.frame(model_m=pRoutput[2,], model_l=pRoutput[1,], model_u=pRoutput[3,], time=1:364)
+
+ggplot() + 
+    geom_line(data = pR, aes(x = time, y = model_m), color = 'red', size=0.4, alpha=0.5) +
+  geom_ribbon(data = pR, aes(x = time, ymin=model_l, ymax=model_u), fill="red", alpha=0.5)
+
+write.csv(pR, file=paste0(file.path, "/figs/pRdata.csv"))
+
+```

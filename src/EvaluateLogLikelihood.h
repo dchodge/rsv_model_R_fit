@@ -70,7 +70,7 @@ public:
     double evaluateLogLikelihoodCpp(VectorXd currentParamValues);
     NumericMatrix getWeeklySampleCpp(VectorXd currentParamValues, bool epFlag);
     NumericVector getAnnualIncidenceCpp(VectorXd currentParamValues);
-    
+    NumericVector getProportionBornProtectedCpp(VectorXd currentParamValues);
     // define in R after construction
     NumericMatrix contactMatrixPhy;
     NumericMatrix contactMatrixCon;
@@ -337,6 +337,21 @@ public:
         this->dayNoAfterBurn++;
     }
     
+    double getProportionBornProtected(vector<double> &x)
+    {
+        vector<double > num_vec_wcba;
+        double sum_wcb = 0.0;
+        double CB2_temp = 0.0;
+        for(int j = 18; j < 21 ; j++)
+        {
+            CB2_temp = (x[1 + j*23] + x[6 + j*23] + x[11 + j*23] + x[16 + j*23] + x[2 + j*23] + x[7 + j*23] + x[12 + j*23] + x[17 + j*23])/(double)this->populationPerAgeGroup[j];
+            num_vec_wcba.push_back(CB2_temp/3.0);
+        }
+        for(int i=0; i < num_vec_wcba.size() ;i++){sum_wcb = sum_wcb + num_vec_wcba[i];}
+        
+        return sum_wcb;
+    }
+    
     inline double check_incidence(VectorXd inc_tot)
     {
         double pl = 0;
@@ -420,7 +435,7 @@ public:
         {
             I_temp += (x[3 + 23*b]*alpha_i+x[4+23*b]+a1*(x[8+23*b]*alpha_i+x[9+23*b])+a2*(x[13+ 23*b]*alpha_i+x[14+23*b])+a3*(x[18+23*b]*alpha_i+x[19+23*b]))*(qp*(contactMatrixPhy(b,a)+qc*contactMatrixCon(b,a)))/((double)populationPerAgeGroup[b]);
         }
-
+        
         int pa = max(23*(a-1), 0);
         
         dxdt[0 + 23*a] = (1.0-p_vul)*mu - x[0 + 23*a]*xi                                   - x[0+23*a]*eta[a+1] + x[0+pa]*eta[a];
@@ -561,5 +576,36 @@ NumericVector EvaluateLogLikelihood::getAnnualIncidenceCpp(VectorXd currentParam
     }
     return sampleAnnualIncidence; // RETURN THE LOG LIKELIHOOD
 }
+    
+NumericVector EvaluateLogLikelihood::getProportionBornProtectedCpp(VectorXd currentParamValues)
+{
+    this->currentODETime = this->run_start;
+    this->loglikelihoodError = false;
+    this->dayNoAfterBurn = 0;
+    this->weekNo = 0;
+    this->valueLogLikelihood = 0;
+    ParameterValuesforODE(currentParamValues);
+    
+    // Set up and Run ODE solver
+    EulerT<state_t> integrator;
+    SystemT<state_t, system_t> System;
+    asc::Recorder recorder;
+    vector< double >  x0 = generateInitialStates();
+    ODE_desc ODE_desc_inst(this);
+    
+    NumericVector vectorProportionBornProtected(364);
+    int i = 0;
+    while (this->currentODETime < (this->run_full + this->run_burn))
+    {
+        integrator(ODE_desc_inst, x0, this->currentODETime, this->dt);
+      
+        if ((this->currentODETime > this->run_burn) && (this->currentODETime < (this->run_oneyr + 1))){
+            vectorProportionBornProtected[i] = getProportionBornProtected(x0);
+            i++;
+        }
+    }
+    return vectorProportionBornProtected;
+}
+
 
 

@@ -32,3 +32,18 @@ run_sample_annual <- function(post)
   out <- sapply(1:25, function(s ) sort(arr[s,])[c(25, 500 , 975)])
   out
 }
+
+
+run_sample_maternal_protected <- function(post)
+{
+  a <- rep(NA, 364*1000)
+  arr <- array(a, c(364,  1000))
+  
+  for (i in 1:1000)
+  {
+    j <- rdunif(1, 1, nrow(post))
+    arr[, i] <- classEvaluateLogLikelihood$getProportionBornProtectedCpp(as.numeric(post[j,]))
+  }
+  out <- sapply(1:364, function(s) sort(arr[s,])[c(25, 500 , 975)])
+  out
+}

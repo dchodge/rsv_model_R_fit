@@ -16,5 +16,7 @@ RCPP_MODULE(EvaluateLogLikelihoodModule) {
     .method( "evaluateLogLikelihoodCpp", &EvaluateLogLikelihood::evaluateLogLikelihoodCpp )
     .method( "getWeeklySampleCpp", &EvaluateLogLikelihood::getWeeklySampleCpp )
     .method( "getAnnualIncidenceCpp", &EvaluateLogLikelihood::getAnnualIncidenceCpp )
+    .method( "getProportionBornProtectedCpp", &EvaluateLogLikelihood::getProportionBornProtectedCpp )
+
     ;
 }

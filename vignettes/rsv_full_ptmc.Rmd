@@ -1,0 +1,123 @@
+---
+title: "rsv_model"
+author: "David Hodgson"
+date: "24/09/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+```
+
+# 1. Setup 
+# 1.1 Import libraries
+May need to downoad all of these (use install.packages)
+```{r libraries}
+
+
+library(Rcpp)       # For c++ intergration
+library(RcppEigen)  # Ditto
+library(coda)       # Ditto
+library(tidyverse)
+library(parallel)
+library(MASS)
+library(foreach)
+library(gridExtra)
+library(doParallel)
+library(BayesianTools)
+library(devtools)
+library(here)
+
+```
+
+
+## 2 Import data for the epidemic model 
+Upload the data used to fit he model, include the contact matricies, the fitted parameter value's upper and lower limits, the observational data (which is NOT the same as in the paper).
+```{r import data}
+#install_github(repo = "https://github.com/dchodge/ptmc")
+devtools::install_local("~/Desktop/ptmc")
+library(ptmc)
+
+load(file = here::here("Rdata", "rsv_data_uk.Rda")) 
+
+```
+
+## 3. Import that model from the cpp file and update the parameter values 
+Once the data is loaded import the model from cpp and change the parameter values.
+Need to link install boost (easiest to do via homebrew), might throw loads of [-Wunknown-pragmas] errors, just ignore, usually an issue with the coompiler.
+```{r}
+
+sourceCpp("./src/logLikelihoodModule.cpp") #ensure c++14 is enabled
+classEvaluateLogLikelihood <- new(EvaluateLogLikelihood, numberDailyLiveBirths, population, ageGroupBoundary) # Calls class
+classEvaluateLogLikelihood$contactMatrixPhy <- contactMatrixPhy
+classEvaluateLogLikelihood$contactMatrixCon <- contactMatrixCon
+classEvaluateLogLikelihood$observedData <- as.matrix(observationalData)
+classEvaluateLogLikelihood$lowerParamSupport <- fit.par$lowerParSupport
+classEvaluateLogLikelihood$upperParamSupport <- fit.par$upperParSupport
+classEvaluateLogLikelihood$run_full <- 3*52*7 # number of days to fit the data and model to
+
+```
+
+
+## Outline of the model (ptmc, not working)
+
+```{r}
+model <- list(
+
+  namesOfParameters =  c("xi", "si", "g0", "g1", "g2", "om","pA1", "pA2", "pA3", "pA4", "alpha_i", "d1", "d2", "d3", "phi", "qp", "qc", "b1", "psi", "c5ep1", "c5ep2","ep5", "ep6", "l1", "l2"),
+
+  # Generate the initial step of Markov chain
+  samplePriorDistributions = function() {
+      s <- vector()
+      for (i in 1:25){
+        s[i] <- prior.sample(fit.par$lowerParSupport[i], fit.par$upperParSupport[i], priorDistSample[[i]], priorDistPar1[i], priorDistPar2[i])
+      }
+      s
+    },
+
+  evaluateLogPrior = function(params) {
+    p = 0
+    for (i in 1:25){
+        if (params[i] < fit.par$lowerParSupport[i] || params[i] > fit.par$upperParSupport[i]){
+            return(log(0))
+        }
+        else{
+            p <- p + prior(params[i], fit.par$lowerParSupport[i], fit.par$upperParSupport[i], priorDistDensity[[i]], TRUE, priorDistPar1[i], priorDistPar2[i])
+        }
+    }
+    return(p)
+  },
+
+  # Evaluate the log likelihood
+  evaluateLogLikelihood = function(params, covariance) {
+    ll <- classEvaluateLogLikelihood$evaluateLogLikelihoodCpp(params)
+    return(ll)
+  }
+)
+
+```
+
+
+```{r}
+
+settingsPT <-  list(
+  numberChainRuns = 1,
+  numberTempChains = 12,
+  iterations = 100000,
+  burninPosterior = 1,
+  thin = 10,
+  consoleUpdates = 1,
+  numberFittedPar = 25,
+  onAdaptiveCov = TRUE,
+  updatesAdaptiveCov = 1,
+  burninAdaptiveCov = 1000,
+  onAdaptiveTemp = TRUE,
+  updatesAdaptiveTemp = 1,
+  onDebug = FALSE,
+  lowerParBounds = fit.par$lowerParSupport,
+  upperParBounds = fit.par$upperParSupport
+)
+
+ptmc_func(model, settingsPT)
+
+```

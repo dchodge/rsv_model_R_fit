@@ -15,8 +15,7 @@ library(Rcpp)       # For c++ integration
 library(RcppEigen)  # Ditto
 library(tidyverse)  # For dataframe manipulation
 library(gridExtra)  # For plotting purposess 
-library(reshape2)
-file.path = '~/documents/ptmc/rsv_model' # change as appropriate
+library(here)       # For c++ integration
 
 ```
 
@@ -25,20 +24,20 @@ file.path = '~/documents/ptmc/rsv_model' # change as appropriate
 ```{r}
 
 # Load in data
-load(file=paste0(file.path, '/Rdata/posteriors.Rda')) # The posteriors from the true model
-load(file=paste0(file.path, '/Rdata/rsv_data.Rda'))   # Load in model data, including observation data (which is made up i.e. not the same as I used in the paper).
+#load(file = here::here("Rdata", "posteriors.Rda")) # The posteriors from the true model
+load(file = here::here("Rdata", "rsv_data.Rda"))   # Load in model data, including observation data (which is made up i.e. not the same as I used in the paper).
 
 # Load in the epidemic model from c++ and update important parameters
 # Need to have boost installed on computer. Can install via homebrew.
 # Might throw loads of [-Wunknown-pragmas] warnings, just ignore, usually an issue with the coompiler.
-sourceCpp(paste0(file.path, "/src/logLikelihoodModule.cpp")) # ensure c++14 is enabled
+sourceCpp(here::here("src", "logLikelihoodModule.cpp")) # ensure c++14 is enabled
 classEvaluateLogLikelihood <- new(EvaluateLogLikelihood, numberDailyLiveBirths, population, ageGroupBoundary) # Calls cpp class
 classEvaluateLogLikelihood$contactMatrixPhy <- contactMatrixPhy # Physical contact matrix 
 classEvaluateLogLikelihood$contactMatrixCon <- contactMatrixCon # Conversational contact matrix 
 classEvaluateLogLikelihood$observedData <- as.matrix(observationalData) 
 classEvaluateLogLikelihood$lowerParamSupport <- fit.par$lowerParSupport # lower support of parameters 
 classEvaluateLogLikelihood$upperParamSupport <- fit.par$upperParSupport # upper support of parameters 
-classEvaluateLogLikelihood$run_full <- nrow(observationalData)*7       # number of days to fit the data and model to
+classEvaluateLogLikelihood$run_full <- nrow(observationalData) * 7       # number of days to fit the data and model to
 
 ```
 
@@ -48,7 +47,7 @@ classEvaluateLogLikelihood$run_full <- nrow(observationalData)*7       # number 
 ```{r}
 
 # load in some extra plot helpers (run_sample)
-source(paste0(file.path, "/R/plot_helpers.R"))
+source(here::here("R", "plot_helpers.R"))
 
 ```
 
@@ -56,12 +55,12 @@ source(paste0(file.path, "/R/plot_helpers.R"))
 
 ```{r}
 
-classEvaluateLogLikelihood$getWeeklySampleCpp(as.numeric(post[1,]), TRUE)
+classEvaluateLogLikelihood$getWeeklySampleCpp(as.numeric(post[1, ]), TRUE)
 
 post_long <- melt(post)
-for (p in 1:length(fit.par$namesOfParameters)){
-  post_long_par <- post_long %>% filter(variable==fit.par$namesOfParameters[p])
-  ggplot(post_long_par, aes(x=value)) + ßß
+for (p in 1:length(fit.par$namesOfParameters)) {
+  post_long_par <- post_long %>% filter(variable == fit.par$namesOfParameters[p])
+  ggplot(post_long_par, aes(x=value)) +
     geom_histogram() + labs(title=paste0("Posterior sample for ",fit.par$namesOfParameters[p] ))
   ggsave(paste0(file.path, "/figs/posteriors/", fit.par$namesOfParameters[p], ".pdf"))
 }

@@ -35,7 +35,7 @@ public:
     double run_start, run_burn, run_oneyr, run_full, dt;
     NumericVector ageStratification;
     
-    int dayNoAfterBurn,  weekNo;
+    int dayNoAfterBurn, weekNo, monthNo;
     double valueLogLikelihood;
     
     // Defined later but of size A
@@ -55,9 +55,9 @@ public:
         populationPerAgeGroup.push_back(totPopulation - (dailyBirthRate*365)*ageStratification[A-1]);
         eta.push_back(dailyBirthRate/(totPopulation - (dailyBirthRate*365)*ageStratification[A-1]) );
 
-        run_start = 0;
-        run_burn = 52*7 + 1;
-        run_oneyr = 52*7 + run_burn;
+     //   run_start = 0;
+     //   run_burn = 52*7 + 1;
+     //   run_oneyr = 52*7 + run_burn;
         dt = 1;
         currentODETime = 0;
         dayNoAfterBurn = 0;
@@ -67,8 +67,10 @@ public:
         loglikelihoodError = false;
     }
     
-    double evaluateLogLikelihoodCpp(VectorXd currentParamValues);
+    double evaluateLogLikelihoodCppWeekly(VectorXd currentParamValues);
+    double evaluateLogLikelihoodCppMonthly(VectorXd currentParamValues);
     NumericMatrix getWeeklySampleCpp(VectorXd currentParamValues, bool epFlag);
+    NumericMatrix getMonthlySampleCpp(VectorXd currentParamValues, bool epFlag);
     NumericVector getAnnualIncidenceCpp(VectorXd currentParamValues);
     NumericVector getProportionBornProtectedCpp(VectorXd currentParamValues);
     // define in R after construction
@@ -226,12 +228,13 @@ public:
       }
     }
     
-    double evaluateTimeStepLogLikelihood(int weekNo){
+    double evaluateTimeStepLogLikelihood(int metricNo){
         double ll = 0;
         double estimatedLogBinomialCoeff;
         for (int a = 0; a < this->A; a++){
-            double dataNewInfections = this->observedData(weekNo, a);
+            double dataNewInfections = this->observedData(metricNo, a);
             if (dataNewInfections > this->modelIncidencePerTime[a]){
+
                 this->loglikelihoodError=true;
                 return log(0);
             }
@@ -270,7 +273,34 @@ public:
             return;
         }
     }
+
+    double getProportionBornProtected(vector<double> &x)
+    {
+        vector<double > num_vec_wcba;
+        double sum_wcb = 0.0;
+        double CB2_temp = 0.0;
+        for(int j = 18; j < 21 ; j++)
+        {
+            CB2_temp = (x[1 + j*23] + x[6 + j*23] + x[11 + j*23] + x[16 + j*23] + x[2 + j*23] + x[7 + j*23] + x[12 + j*23] + x[17 + j*23])/(double)this->populationPerAgeGroup[j];
+            num_vec_wcba.push_back(CB2_temp/3.0);
+        }
+        for(int i=0; i < num_vec_wcba.size() ;i++){sum_wcb = sum_wcb + num_vec_wcba[i];}
+        
+        return sum_wcb;
+    }
     
+    inline double check_incidence(VectorXd inc_tot)
+    {
+        double pl = 0;
+        for (int a = 0; a < 25; a++)
+        {
+            if (inc_tot(a) > populationPerAgeGroup[a]*0.8){
+                return log(0);
+            }
+        }
+        return pl;
+    }
+        
     void getWeeklyLikelihood(vector<double> &x0, VectorXd& inc_tot )
     {
         double ll = 0;
@@ -319,6 +349,57 @@ public:
       }
       this->dayNoAfterBurn++;
     }
+
+    void getMonthlyLikelihood(vector<double> &x0, VectorXd& inc_tot )
+    {
+        double ll = 0;
+        if (this->dayNoAfterBurn == 0){
+            for (int a = 0; a < this->A; a++)
+                x0[22 + 23*a] = 0.0; //Incidence at t_d = 0;
+        }
+        if (this->dayNoAfterBurn%30 == 0 && this->dayNoAfterBurn > 0)
+        {
+            for (int a = 0; a < this->A; a++){
+                this->modelIncidencePerTime[a] = x0[22 + 23*a]; //Incidence at t_d = 7;
+                inc_tot(a) += this->modelIncidencePerTime[a];
+                x0[22 + 23*a] = 0.0;
+            }
+            this->valueLogLikelihood += this->evaluateTimeStepLogLikelihood(this->monthNo);
+
+            if (this->loglikelihoodError){return;}
+            this->monthNo++;
+        }
+        if (this->dayNoAfterBurn%360 == 0 && this->currentODETime > 0) {
+          //  ll += check_incidence(inc_tot);
+            if (std::isinf(ll)){
+                if (this->loglikelihoodError){return;}
+            }
+            inc_tot = VectorXd::Zero(this->A);
+        }
+        this->dayNoAfterBurn++;
+    }
+    
+    void getMonthlyIncidence(vector<double> &x0, NumericMatrix &sampleMonthlyIncidence, bool epFlag)
+    {
+      if (this->dayNoAfterBurn == 0){
+        for (int a = 0; a < this->A; a++)
+          x0[22 + 23*a] = 0.0; //Incidence at t_d = 0;
+      }
+      if (this->dayNoAfterBurn%30 == 0 && this->dayNoAfterBurn > 0)
+      {
+        for (int a = 0; a < this->A; a++){
+          if (epFlag)
+            sampleMonthlyIncidence(this->monthNo, a) = x0[22 + 23*a]*this->ep_t[a]; //Incidence at t_d = 7;
+          else
+            sampleMonthlyIncidence(this->monthNo, a) = x0[22 + 23*a]; //Incidence at t_d = 7;
+          
+          x0[22 + 23*a] = 0.0;
+        }
+        this->monthNo++;
+      }
+      this->dayNoAfterBurn++;
+    }
+    
     
     void getAnnualIncidence(vector<double> &x0, NumericVector &sampleAnnualIncidence)
     {
@@ -337,32 +418,6 @@ public:
         this->dayNoAfterBurn++;
     }
     
-    double getProportionBornProtected(vector<double> &x)
-    {
-        vector<double > num_vec_wcba;
-        double sum_wcb = 0.0;
-        double CB2_temp = 0.0;
-        for(int j = 18; j < 21 ; j++)
-        {
-            CB2_temp = (x[1 + j*23] + x[6 + j*23] + x[11 + j*23] + x[16 + j*23] + x[2 + j*23] + x[7 + j*23] + x[12 + j*23] + x[17 + j*23])/(double)this->populationPerAgeGroup[j];
-            num_vec_wcba.push_back(CB2_temp/3.0);
-        }
-        for(int i=0; i < num_vec_wcba.size() ;i++){sum_wcb = sum_wcb + num_vec_wcba[i];}
-        
-        return sum_wcb;
-    }
-    
-    inline double check_incidence(VectorXd inc_tot)
-    {
-        double pl = 0;
-        for (int a = 0; a < 25; a++)
-        {
-            if (inc_tot(a) > populationPerAgeGroup[a]*0.8){
-                return log(0);
-            }
-        }
-        return pl;
-    }
 };
 
 class ODE_desc
@@ -472,8 +527,7 @@ public:
   }
 };
 
-
-double EvaluateLogLikelihood::evaluateLogLikelihoodCpp(VectorXd currentParamValues)
+double EvaluateLogLikelihood::evaluateLogLikelihoodCppWeekly(VectorXd currentParamValues)
 {
   // Restart values
   this->currentODETime = this->run_start;
@@ -501,6 +555,42 @@ double EvaluateLogLikelihood::evaluateLogLikelihoodCpp(VectorXd currentParamValu
     
     if (this->currentODETime > this->run_burn){
       getWeeklyLikelihood(x0, inc_tot);
+      if (this->loglikelihoodError){return log(0);}
+    }
+  }
+  // correction here
+  return this->valueLogLikelihood; // RETURN THE LOG LIKELIHOOD
+}
+
+double EvaluateLogLikelihood::evaluateLogLikelihoodCppMonthly(VectorXd currentParamValues)
+{
+  // Restart values
+
+  this->currentODETime = this->run_start;
+  this->loglikelihoodError = false;
+  this->dayNoAfterBurn = 0;
+  this->monthNo = 0;
+  this->valueLogLikelihood = 0;
+  VectorXd inc_tot(this->A);
+  inc_tot = VectorXd::Zero(this->A);
+    
+  ParameterValuesforODE(currentParamValues);
+  
+  // Set up and Run ODE solver
+  EulerT<state_t> integrator;
+  SystemT<state_t, system_t> System;
+  asc::Recorder recorder;
+  vector< double >  x0 = generateInitialStates();
+  ODE_desc ODE_desc_inst(this);
+
+  while (this->currentODETime < (this->run_full + this->run_burn)){
+    integrator(ODE_desc_inst, x0, this->currentODETime, this->dt);
+
+    checkStability(x0);
+    if (this->loglikelihoodError){return log(0);}
+    
+    if (this->currentODETime > this->run_burn){
+      getMonthlyLikelihood(x0, inc_tot);
       if (this->loglikelihoodError){return log(0);}
     }
   }
@@ -540,6 +630,41 @@ NumericMatrix EvaluateLogLikelihood::getWeeklySampleCpp(VectorXd currentParamVal
     }
   }
   return sampleWeeklyIncidence; // RETURN THE LOG LIKELIHOOD
+}
+
+
+NumericMatrix EvaluateLogLikelihood::getMonthlySampleCpp(VectorXd currentParamValues, bool epFlag)
+{
+  // Restart values
+  this->currentODETime = this->run_start;
+  this->loglikelihoodError = false;
+  this->dayNoAfterBurn = 0;
+  this->monthNo = 0;
+  this->valueLogLikelihood = 0;
+  ParameterValuesforODE(currentParamValues);
+
+  // Set up and Run ODE solver
+  EulerT<state_t> integrator;
+  SystemT<state_t, system_t> System;
+  asc::Recorder recorder;
+  vector< double >  x0 = generateInitialStates();
+  ODE_desc ODE_desc_inst(this);
+  
+  NumericMatrix sampleMonthlyIncidence(12, this->A );
+  
+  while (this->currentODETime < (this->run_full + this->run_burn)){
+    integrator(ODE_desc_inst, x0, this->currentODETime, this->dt);
+    
+    checkStability(x0);
+    if (this->loglikelihoodError){return log(0);}
+    
+    if (this->currentODETime > this->run_burn){
+      getMonthlyIncidence(x0, sampleMonthlyIncidence, epFlag);
+      if (this->loglikelihoodError){return log(0);}
+        
+    }
+  }
+  return sampleMonthlyIncidence; // RETURN THE LOG LIKELIHOOD
 }
 
 NumericVector EvaluateLogLikelihood::getAnnualIncidenceCpp(VectorXd currentParamValues)

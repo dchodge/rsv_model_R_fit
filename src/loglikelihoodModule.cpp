@@ -12,9 +12,14 @@ RCPP_MODULE(EvaluateLogLikelihoodModule) {
     .field( "lowerParamSupport", &EvaluateLogLikelihood::lowerParamSupport )
     .field( "upperParamSupport", &EvaluateLogLikelihood::upperParamSupport )
     .field( "run_full", &EvaluateLogLikelihood::run_full )
+    .field( "run_start", &EvaluateLogLikelihood::run_start )
+    .field( "run_burn", &EvaluateLogLikelihood::run_burn )
+    .field( "run_oneyr", &EvaluateLogLikelihood::run_oneyr )
 
-    .method( "evaluateLogLikelihoodCpp", &EvaluateLogLikelihood::evaluateLogLikelihoodCpp )
+    .method( "evaluateLogLikelihoodCppWeekly", &EvaluateLogLikelihood::evaluateLogLikelihoodCppWeekly )
+    .method( "evaluateLogLikelihoodCppMonthly", &EvaluateLogLikelihood::evaluateLogLikelihoodCppMonthly )
     .method( "getWeeklySampleCpp", &EvaluateLogLikelihood::getWeeklySampleCpp )
+    .method( "getMonthlySampleCpp", &EvaluateLogLikelihood::getMonthlySampleCpp )
     .method( "getAnnualIncidenceCpp", &EvaluateLogLikelihood::getAnnualIncidenceCpp )
     .method( "getProportionBornProtectedCpp", &EvaluateLogLikelihood::getProportionBornProtectedCpp )
 

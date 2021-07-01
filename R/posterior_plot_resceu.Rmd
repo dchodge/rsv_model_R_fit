@@ -1,0 +1,147 @@
+---
+title: "posterior_plot"
+author: "David Hodgson"
+date: "25/09/2020"
+output: html_document
+---
+
+## 1. Load in libraries and file path.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# may need to install these
+library(Rcpp)       # For c++ integration
+library(RcppEigen)  # Ditto
+library(tidyverse)  # For dataframe manipulation
+library(gridExtra)  # For plotting purposess 
+library(here)       # For c++ integration
+
+```
+
+## 2. Load the data, posteriors and model.
+
+```{r}
+
+# Load in data
+load(file = here::here("data", "posteriors_resceu.RData")) # The posteriors from the true model
+load(file = here::here("data", "rsv_data_resceu.RData"))   # Load in model data, including observation data (which is made up i.e. not the same as I used in the paper).
+
+# Load in the epidemic model from c++ and update important parameters
+# Need to have boost installed on computer. Can install via homebrew.
+# Might throw loads of [-Wunknown-pragmas] warnings, just ignore, usually an issue with the coompiler.
+sourceCpp(here("src", "logLikelihoodModule.cpp")) #ensure c++14 is enabled
+classEvaluateLogLikelihood <- new(EvaluateLogLikelihood, resceudata$numberDailyLiveBirths, resceudata$population, resceudata$ageGroupBoundary) # Calls class
+classEvaluateLogLikelihood$contactMatrixPhy <- resceudata$contactMatrixPhy
+classEvaluateLogLikelihood$contactMatrixCon <- resceudata$contactMatrixCon
+classEvaluateLogLikelihood$observedData <- as.matrix(resceudata$observationalData)
+classEvaluateLogLikelihood$lowerParamSupport <- priordata$fit.par$lowerParSupport
+classEvaluateLogLikelihood$upperParamSupport <- priordata$fit.par$upperParSupport
+classEvaluateLogLikelihood$run_start <- 0
+classEvaluateLogLikelihood$run_burn <- 30 * 12 + 1
+classEvaluateLogLikelihood$run_oneyr <- 30 * 12 + classEvaluateLogLikelihood$run_burn
+classEvaluateLogLikelihood$run_full <- 30 * 12 + 1 # number of days to fit the data and model to
+
+```
+
+## 3. Generate images in figs folder
+### 3.1 Load in helper functions
+
+```{r}
+
+# load in some extra plot helpers (run_sample)
+source(here::here("R", "plot_helpers.R"))
+
+```
+
+### 3.2 Plot the poseterior distirbutions
+
+```{r}
+
+classEvaluateLogLikelihood$getMonthlySampleCpp(as.numeric(output1[[1]][[1]][9999, ]), FALSE)
+
+post_long_par <- output1[[1]][[1]] %>% as.data.frame %>%
+  pivot_longer(everything(), values_to = "values", names_to = "parameters")
+
+for (p in seq_len(length(priordata$fit.par$namesOfParameters ))) {
+  post_long_par %>% filter(parameters == priordata$fit.par$namesOfParameters[p]) %>% 
+  ggplot(aes(x = values)) +
+    geom_histogram() + labs(title = paste0("Posterior sample for ",priordata$fit.par$namesOfParameters[p]))
+  ggsave(here("figs", "resceu", "posterior", paste0(priordata$fit.par$namesOfParameters[p], ".pdf")))
+}
+
+```
+
+### 3.3 Plot the weekly incidences using the posterior samples.
+
+```{r}
+
+## run_sample is in plot_helpers.R file
+est_ep <- run_sample_monthly(output1[[1]][[1]], TRUE) # Predicted number of positive samples (useful for comparing the model-predicted incidence with the data)
+est <- run_sample_monthly(output1[[1]][[1]], FALSE)  # Predicted incidence
+
+# Output the figs for each age group
+for (a in 1:25) {
+  dataplot <- data.frame(model_m = est_ep[[a]][2,], model_l = est_ep[[a]][1,], model_u = est_ep[[a]][3,], 
+    data = resceudata$observationalData[,a], time = c(1:(12)))
+  
+  ggplot() +
+    geom_point(data = dataplot, aes(x = time, y = data, color = 'black'), size=0.5, alpha=0.5) +
+    geom_line(data = dataplot, aes(x = time, y = model_m, color = 'red'), size=0.4, linetype="dotted") +
+    geom_line(data = dataplot, aes(x = time, y = model_l), color = 'red', size=0.4, alpha=0.5) +
+    geom_line(data = dataplot, aes(x = time, y = model_u), color = 'red', size=0.4, alpha=0.5) +
+    geom_ribbon(data = dataplot, aes(x = time, ymin=model_l, ymax=model_u), fill="red", alpha=0.5) + 
+    scale_colour_manual(name = 'Hello', values =c('black'='black','red'='red'), labels = c('Observational data','Model-predicted')) + 
+    xlab('Week') + ylab('Estimated number of weekly new positive samples') + ggtitle(paste("Age group", a))
+  
+  ggsave(here("figs", "resceu", "compare", paste0("inci_", a, ".pdf")))
+}
+
+# Output the figs for each age group
+for (a in 1:25) {
+  dataplot <- data.frame(model_m = est[[a]][2, ], model_l = est[[a]][1, ], model_u = est[[a]][3, ], time = c(1:(12)))
+  
+  ggplot() +
+    geom_line(data = dataplot, aes(x = time, y = model_m, color = 'red'), size=0.4, linetype="dotted") +
+    geom_line(data = dataplot, aes(x = time, y = model_l), color = 'red', size=0.4, alpha=0.5) +
+    geom_line(data = dataplot, aes(x = time, y = model_u), color = 'red', size=0.4, alpha=0.5) +
+    geom_ribbon(data = dataplot, aes(x = time, ymin=model_l, ymax=model_u), fill="red", alpha=0.5) + 
+    xlab('Week') + ylab('Estimated number of weekly new infections') + ggtitle(paste("Age group", a))
+  
+   ggsave(here("figs", "resceu", "pred", paste0("inci_", a, ".pdf")))
+}
+
+```
+
+### 3.4 Plot the annual incidences using the posterior samples.
+
+```{r pressure, echo=FALSE}
+
+ann_est <- run_sample_annual(post)
+dataplot <- data.frame(model_m=ann_est[2,], model_l=ann_est[1,], model_u=ann_est[3,], age=1:ageGroupNumber)
+
+# Output the annual incidence fig
+ggplot() + 
+  geom_line(data = dataplot, aes(x = age, y = model_m, color = 'red'), size=0.4, linetype="dotted") +
+  geom_line(data = dataplot, aes(x = age, y = model_l), color = 'red', size=0.4, alpha=0.5) +
+  geom_line(data = dataplot, aes(x = age, y = model_u), color = 'red', size=0.4, alpha=0.5) +
+  geom_ribbon(data = dataplot, aes(x = age, ymin=model_l, ymax=model_u), fill="red", alpha=0.5) + 
+  xlab('Age group') + ylab('Proportion of age group who acquire infection  annually') + ggtitle("Annual incidence")
+
+ggsave(paste0(file.path, "/figs/inci_all.pdf"))
+
+```
+### 3.5 Plot the proportion of infants born with protection
+
+```{r}
+
+pRoutput <- run_sample_maternal_protected(post)
+pR <- data.frame(model_m=pRoutput[2,], model_l=pRoutput[1,], model_u=pRoutput[3,], time=1:364)
+
+ggplot() + 
+    geom_line(data = pR, aes(x = time, y = model_m), color = 'red', size=0.4, alpha=0.5) +
+  geom_ribbon(data = pR, aes(x = time, ymin=model_l, ymax=model_u), fill="red", alpha=0.5)
+
+write.csv(pR, file=paste0(file.path, "/figs/pRdata.csv"))
+
+```

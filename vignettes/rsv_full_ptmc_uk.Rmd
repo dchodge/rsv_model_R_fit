@@ -35,7 +35,7 @@ source( here::here("src", "helpers.R")) #ensure c++14 is enabled
 Upload the data used to fit he model, include the contact matricies, the fitted parameter value's upper and lower limits, the observational data (which is NOT the same as in the paper).
 ```{r import data}
 
-#install_github(repo = "https://github.com/dchodge/ptmc")
+install_github(repo = "https://github.com/dchodge/ptmc")
 library(ptmc)
 
 load(file = here::here("data", "rsv_data_uk.RData")) # loads ukdata
@@ -111,12 +111,12 @@ model <- list(
 settingsPT <-  list(
   numberChainRuns = 1,
   numberTempChains = 12,
-  iterations = 100000,
-  burninPosterior = 1,
+  iterations = 200000,
+  burninPosterior = 100000,
   thin = 10,
   consoleUpdates = 1,
   numberFittedPar = 25,
-  onAdaptiveCov = TRUE,ç
+  onAdaptiveCov = TRUE,
   updatesAdaptiveCov = 1,
   burninAdaptiveCov = 1000,
   onAdaptiveTemp = TRUE,

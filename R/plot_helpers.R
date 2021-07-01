@@ -16,6 +16,19 @@ run_sample <- function(post, bool)
   out
 }
 
+run_sample_monthly <- function(post, bool)
+{
+  a <- rep(NA, 25 * (12) * 1000)
+  arr <- array(a, c(12, 25,  1000))
+  for (i in 1:1000){
+    j <- rdunif(1, 1, nrow(post))
+    arr[, , i] <- classEvaluateLogLikelihood$getMonthlySampleCpp(as.numeric(post[j, ]), bool)
+  }
+  out <- lapply(1:25, function(y) sapply(1:(12), function(x) sort(arr[x, y, ])[c(25, 500, 975)]))
+  out
+}
+
+
 # run_sample_annual: runs the model with 1000 random samples from the posterior, outputs the median, and 95% confidence intervals for the annual incidence per age group
 run_sample_annual <- function(post)
 {

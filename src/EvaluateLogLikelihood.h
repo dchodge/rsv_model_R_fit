@@ -405,7 +405,7 @@ public:
     {
         if (this->dayNoAfterBurn == 0){
             for (int a = 0; a < this->A; a++)
-            x0[22 + 23*a] = 0.0; //Incidence at t_d = 0;
+              x0[22 + 23*a] = 0.0; //Incidence at t_d = 0;
         }
         if (this->dayNoAfterBurn%7 == 0 && this->dayNoAfterBurn > 0)
         {

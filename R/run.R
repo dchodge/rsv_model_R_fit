@@ -1,18 +1,3 @@
----
-title: "rsv_model"
-author: "David Hodgson"
-date: "24/09/2020"
-output: html_document
----
-
-```{r setup, include=FALSE}
-
-```
-
-# 1. Setup 
-# 1.1 Import libraries
-May need to downoad all of these (use install.packages)
-```{r libraries}
 
 library(Rcpp)       # For c++ intergration
 library(RcppEigen)  # Ditto
@@ -28,25 +13,12 @@ library(devtools)
 library(here)
 source( here::here("src", "helpers.R")) #ensure c++14 is enabled
 
-```
-
-
-## 2 Import data for the epidemic model 
-Upload the data used to fit he model, include the contact matricies, the fitted parameter value's upper and lower limits, the observational data (which is NOT the same as in the paper).
-```{r import data}
 
 #install_github(repo = "https://github.com/dchodge/ptmc")
 library(ptmc)
 
 load(file = here::here("data", "rsv_data_resceu.RData")) # loads ukdata
 load(file = here::here("data", "prior_data_resceu.RData")) # loads priordata
-
-```
-
-## 3. Import that model from the cpp file and update the parameter values 
-Once the data is loaded import the model from cpp and change the parameter values.
-Need to link install boost (easiest to do via homebrew), might throw loads of [-Wunknown-pragmas] errors, just ignore, usually an issue with the coompiler.
-```{r}
 
 sourceCpp(here("src", "logLikelihoodModule.cpp")) #ensure c++14 is enabled
 classEvaluateLogLikelihood <- new(EvaluateLogLikelihood, resceudata$numberDailyLiveBirths, resceudata$population, resceudata$ageGroupBoundary) # Calls class
@@ -59,13 +31,6 @@ classEvaluateLogLikelihood$run_start <- 0
 classEvaluateLogLikelihood$run_burn <- 30 * 12 + 1
 classEvaluateLogLikelihood$run_oneyr <- 30 * 12 + classEvaluateLogLikelihood$run_burn
 classEvaluateLogLikelihood$run_full <- 30 * 12 # number of days to fit the data and model to
-
-```
-
-
-## Outline of the model (ptmc, not working)
-
-```{r}
 
 model <- list(
 
@@ -102,12 +67,6 @@ model <- list(
   }
 )
 
-```
-
-
-```{r}
-
-
 settingsPT <-  list(
   numberChainRuns = 1,
   numberTempChains = 12,
@@ -127,6 +86,5 @@ settingsPT <-  list(
 )
 
 output1 <- ptmc_func(model, settingsPT)
-save(output1, file = here("data", "posteriors_resceu.RData"))
-
-```
+taskIdChar <- Sys.getenv("SGE_TASK_ID")
+save(output1, file = here("data", paste0("posteriors_resceu_", taskIdChar, ".RData")))

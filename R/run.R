@@ -13,6 +13,8 @@ library(devtools)
 library(here)
 source( here::here("src", "helpers.R")) #ensure c++14 is enabled
 
+args <- commandArgs()
+num <- as.character(args[6])
 
 #install_github(repo = "https://github.com/dchodge/ptmc")
 library(ptmc)
@@ -70,14 +72,14 @@ model <- list(
 settingsPT <-  list(
   numberChainRuns = 1,
   numberTempChains = 12,
-  iterations = 100000,
-  burninPosterior = 1,
+  iterations = 500000,
+  burninPosterior = 100000,
   thin = 10,
   consoleUpdates = 100,
   numberFittedPar = 25,
   onAdaptiveCov = TRUE,
   updatesAdaptiveCov = 10,
-  burninAdaptiveCov = 10000,
+  burninAdaptiveCov = 30000,
   onAdaptiveTemp = TRUE,
   updatesAdaptiveTemp = 1,
   onDebug = FALSE,
@@ -85,6 +87,8 @@ settingsPT <-  list(
   upperParBounds = priordata$fit.par$upperParSupport
 )
 
+
 output1 <- ptmc_func(model, settingsPT)
-taskIdChar <- Sys.getenv("SGE_TASK_ID")
-save(output1, file = here("data", paste0("posteriors_resceu_", taskIdChar, ".RData")))
+#taskIdChar <- Sys.getenv("SGE_TASK_ID")
+
+save(output1, file = here("data", paste0("posteriors_resceu_", num, ".RData")))

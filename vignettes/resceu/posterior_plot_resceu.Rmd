@@ -1,0 +1,174 @@
+---
+title: "posterior_plot"
+author: "David Hodgson"
+date: "25/09/2020"
+output: html_document
+---
+
+## 1. Load in libraries and file path.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# may need to install these
+library(Rcpp)       # For c++ integration
+library(RcppEigen)  # Ditto
+library(tidyverse)  # For dataframe manipulation
+library(gridExtra)  # For plotting purposess 
+library(here)       # For c++ integration
+
+```
+
+## 2. Load the data, posteriors and model
+
+```{r}
+
+# To help with plots
+source(here::here("R", "plot_helpers.R"))
+
+# Load in data
+load(file = here::here("data", "resceu", "posteriors.RData")) # The posteriors from the true model
+load(file = here::here("data", "resceu", "rsv_data_resceu.RData"))   # Load in model data, including observation data (which is made up i.e. not the same as I used in the paper).
+load(file = here::here("data", "resceu", "prior_data_resceu.RData"))   # Load in model data, including observation data (which is made up i.e. not the same as I used in the paper).
+
+# Load in the epidemic model from c++ and update important parameters
+# Need to have boost installed on computer. Can install via homebrew.
+# Might throw loads of [-Wunknown-pragmas] warnings, just ignore, usually an issue with the coompiler.
+sourceCpp(here("src", "logLikelihoodModule_resceu.cpp")) #ensure c++14 is enabled
+classEvaluateLogLikelihood <- new(EvaluateLogLikelihood, resceudata$numberDailyLiveBirths, resceudata$population, resceudata$ageGroupBoundary) # Calls class
+classEvaluateLogLikelihood$contactMatrixPhy <- t(resceudata$contactMatrixPhy)
+classEvaluateLogLikelihood$contactMatrixCon <- t(resceudata$contactMatrixCon)
+classEvaluateLogLikelihood$observedData <- as.matrix(resceudata$observationalData)
+classEvaluateLogLikelihood$lowerParamSupport <- priordata$fit.par$lowerParSupport
+classEvaluateLogLikelihood$upperParamSupport <- priordata$fit.par$upperParSupport
+classEvaluateLogLikelihood$run_start <- 0
+classEvaluateLogLikelihood$run_burn <- 30 * 12 + 1
+classEvaluateLogLikelihood$run_oneyr <- 30 * 12 + classEvaluateLogLikelihood$run_burn
+classEvaluateLogLikelihood$run_full <- 30 * 12 # number of days to fit the data and model to
+
+```
+
+## 3. Generate images in figs folder
+### 3.1 Load in helper functions
+
+```{r}
+
+library(coda)
+library(bayesplot)
+start <- floor(nrow(output1[[1]][[1]]) / 2 )
+end <- nrow(output1[[1]][[1]])
+all_pars <- colnames(output1$mcmc[[1]]) 
+
+color_scheme_set("red")
+mcmc_post <- output1$mcmc %>% map(~.x[start:end, ] )
+gelman.diag(output1$mcmc)[[1]]
+
+transmission_param <- c("alpha_i", "phi", "qp", "qc", "psi", "b1", "l1", "l2" )
+tp_trans <- c(
+    "alpha_i" = "alpha",
+    "phi" = "phi",
+    'qp' = 'q[p]', 
+    'qc' = 'q[c]',
+    "psi" = "psi", 
+    "b1" = "b[1]", 
+    "l1" = "l[1]", 
+    "l2" = "l[2]"
+  )
+my_labeller_tp <- as_labeller(
+  x = tp_trans,
+  default = label_parsed
+)
+
+detection_param <- c("ep1", "ep2", "ep3", "ep4", "ep5", "ep6", "ep7", "ep8")
+detection_param_exp <- c(expression("epsilon[1]"), "ep2", "ep3", "ep4", "ep5", "ep6", "ep7", "ep8")
+
+dp_trans <- c(
+    "ep1" = "epsilon[1]",
+    "ep2" = "epsilon[2]",
+    'ep3' = 'epsilon[3]',
+    'ep4' = 'epsilon[4]',
+    "ep5" = "epsilon[5]",
+    "ep6" = "epsilon[6]",
+    "ep7" = "epsilon[7]",
+    "ep8" = "epsilon[8]"
+  )
+my_labeller_dp <- as_labeller(
+  x = dp_trans,
+  default = label_parsed
+)
+
+post1 <- mcmc_dens_overlay(mcmc_post, pars = transmission_param, facet_args = list(labeller = my_labeller_tp))
+ggsave(post1, file = here::here("figs", "resceu", "post", "trans.pdf"))
+
+
+post2 <- mcmc_intervals(mcmc_post, pars = detection_param, point_size = 2) + 
+  scale_y_discrete(labels = detection_param)
+ggsave(post2, file = here::here("figs", "resceu", "post", "detect.pdf"))
+
+trace1 <- mcmc_trace(mcmc_post, pars = transmission_param,  facet_args = list(labeller = my_labeller_tp))
+trace2 <- mcmc_trace(mcmc_post, pars = detection_param,  facet_args = list(labeller = my_labeller_dp))
+
+ggsave(trace1, file = here::here("figs", "resceu", "post", "trace_trans.pdf"))
+ggsave(trace2, file = here::here("figs", "resceu", "post", "trace_detect.pdf"))
+
+
+```
+
+### 3.2 Plot the poseterior distirbutions
+
+```{r}
+
+post_long_par <- output1[[1]][[1]][start:end, ]  %>% as.data.frame %>%
+  pivot_longer(everything(), values_to = "values", names_to = "parameters")
+
+for (p in seq_len(length(priordata$fit.par$namesOfParameters))) {
+  post_long_par %>% filter(parameters == priordata$fit.par$namesOfParameters[p]) %>% 
+  ggplot(aes(x = values)) +
+    geom_histogram() + labs(title = paste0("Posterior sample for ",priordata$fit.par$namesOfParameters[p]))
+  ggsave(here("figs", "resceu", "posterior", paste0(priordata$fit.par$namesOfParameters[p], ".pdf")))
+}
+
+```
+
+### 3.3 Plot the weekly incidences using the posterior samples.
+
+```{r}
+
+## run_sample is in plot_helpers.R file
+est_ep <- run_sample_monthly(output1[[1]][[1]], TRUE) # Predicted number of positive samples (useful for comparing the model-predicted incidence with the data)
+est <- run_sample_monthly(output1[[1]][[1]], FALSE)  # Predicted incidence
+
+# Output the figs for each age group
+for (a in 1:25) {
+  dataplot <- data.frame(model_m = est_ep[[a]][2,], model_l = est_ep[[a]][1,], model_u = est_ep[[a]][3,], 
+    data = resceudata$observationalData[,a], time = c(1:(12)))
+  
+  ggplot() +
+    geom_point(data = dataplot, aes(x = time, y = data, color = 'black'), size=0.5, alpha=0.5) +
+    geom_line(data = dataplot, aes(x = time, y = model_m, color = 'red'), size=0.4, linetype="dotted") +
+    geom_line(data = dataplot, aes(x = time, y = model_l), color = 'red', size=0.4, alpha=0.5) +
+    geom_line(data = dataplot, aes(x = time, y = model_u), color = 'red', size=0.4, alpha=0.5) +
+    geom_ribbon(data = dataplot, aes(x = time, ymin = model_l, ymax=model_u), fill="red", alpha=0.5) + 
+    scale_colour_manual(name = 'Hello', values =c('black'='black','red'='red'), labels = c('Observational data','Model-predicted')) + 
+    xlab('Week') + ylab('Estimated number of weekly new positive samples') + ggtitle(paste("Age group", a))
+  
+  ggsave(here("figs", "resceu", "compare", paste0("inci_", a, ".pdf")))
+}
+
+# Output the figs for each age group
+for (a in 1:25) {
+
+  dataplot <- data.frame(model_m = est[[a]][2, ], model_l = est[[a]][1, ], model_u = est[[a]][3, ], time = c(1:(12)))
+  
+  ggplot() +
+    geom_line(data = dataplot, aes(x = time, y = model_m, color = 'red'), size=0.4, linetype="dotted") +
+    geom_line(data = dataplot, aes(x = time, y = model_l), color = 'red', size=0.4, alpha=0.5) +
+    geom_line(data = dataplot, aes(x = time, y = model_u), color = 'red', size=0.4, alpha=0.5) +
+    geom_ribbon(data = dataplot, aes(x = time, ymin=model_l, ymax=model_u), fill="red", alpha=0.5) + 
+    xlab('Week') + ylab('Estimated number of weekly new infections') + ggtitle(paste("Age group", a))
+  
+   ggsave(here("figs", "resceu", "pred", paste0("inci_", a, ".pdf")))
+}
+
+```
+

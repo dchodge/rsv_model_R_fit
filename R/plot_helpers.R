@@ -4,7 +4,7 @@
 # run_sample: runs the model with 1000 random samples from the posterior, outputs the median, and 95% confidence intervals for the weekly incidence per age group
 # post: the posterior samples as imported (post)
 # bool: flag to output the model multipled by the ascertainment probablility (epsilon). If FALSE then outputs the true predicted values.
-run_sample <- function(post, bool)
+run_sample_weekly <- function(post, bool)
 {
   a <- rep(NA, 25 * (52 * 7) * 1000)
   arr <- array(a, c(52 * 7, 25,  1000))

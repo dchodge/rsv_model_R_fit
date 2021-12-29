@@ -1,0 +1,160 @@
+---
+title: "rsv_model"
+author: "David Hodgson"
+date: "24/09/2020"
+output: html_document
+---
+
+
+# 1. Setup 
+# 1.1 Import libraries
+May need to downoad all of these (use install.packages)
+```{r libraries}
+
+library(Rcpp)       # For c++ intergration
+library(RcppEigen)  # Ditto
+library(coda)       # Ditto
+library(tidyverse)
+library(parallel)
+library(MASS)
+library(foreach)
+library(gridExtra)
+library(doParallel)
+library(BayesianTools)
+library(devtools)
+library(here)
+#source(here::here("R", "gen_data", "helpers.R")) #ensure c++14 is enabled
+
+```
+
+
+## 2 Import data for the epidemic model 
+Upload the data used to fit he model, include the contact matricies, the fitted parameter value's upper and lower limits.
+
+```{r import data}
+
+#install_github(repo = "https://github.com/dchodge/ptmc")
+library(ptmc)
+load(file = here::here("data", "resceu", "rsv_data_resceu.RData")) # loads ukdata
+load(file = here::here("data", "resceu", "prior_data_resceu.RData")) # loads 1
+noPar <- 17
+
+```
+
+## 3. Import that model from the cpp file and update the parameter values 
+Once the data is loaded import the model from cpp and change the parameter values.
+Need to link install boost (easiest to do via homebrew), might throw loads of [-Wunknown-pragmas] errors, just ignore, usually an issue with the coompiler.
+```{r load in RCPP_MODULE}
+
+sourceCpp(here("src", "logLikelihoodModule_resceu.cpp")) #ensure c++14 is enabled
+classEvaluateLogLikelihood <- new(EvaluateLogLikelihood, resceudata$numberDailyLiveBirths, resceudata$population, resceudata$ageGroupBoundary) # Calls class
+classEvaluateLogLikelihood$contactMatrixPhy <- t(resceudata$contactMatrixPhy)
+classEvaluateLogLikelihood$contactMatrixCon <- t(resceudata$contactMatrixCon)
+classEvaluateLogLikelihood$observedData <- as.matrix(resceudata$observationalData)
+classEvaluateLogLikelihood$lowerParamSupport <- priordata$fit.par$lowerParSupport
+classEvaluateLogLikelihood$upperParamSupport <- priordata$fit.par$upperParSupport
+classEvaluateLogLikelihood$run_start <- 0
+classEvaluateLogLikelihood$run_burn <- 30 * 12 + 1
+classEvaluateLogLikelihood$run_oneyr <- 30 * 12 + classEvaluateLogLikelihood$run_burn
+classEvaluateLogLikelihood$run_full <- 30 * 12
+
+```
+
+## Outline of the model
+
+```{r Model outline}
+
+model <- list(
+
+  namesOfParameters =  c("alpha_i", "phi", "qp", "qc", "b1", "psi", "ep1", "ep2", "ep3", "ep4", "ep5", "ep6", "ep7", "ep8", "ep9", "l1", "l2"),
+
+  # Generate the initial step of Markov chain
+  samplePriorDistributions = function() {
+      s <- vector()
+      for (i in 1:noPar) {
+        s[i] <- prior.sample(priordata$fit.par$lowerParSupport[i], priordata$fit.par$upperParSupport[i], 
+        priordata$priorDistSample[[i]], priordata$priorDistPar1[i], priordata$priorDistPar2[i])
+      }
+      s
+    },
+
+  evaluateLogPrior = function(params) {
+    p = 0
+    for (i in 1:noPar) {
+        if (params[i] < priordata$fit.par$lowerParSupport[i] || params[i] > priordata$fit.par$upperParSupport[i]) {
+            return(log(0))
+        }
+        else{
+            p <- p + prior(params[i], priordata$fit.par$lowerParSupport[i], priordata$fit.par$upperParSupport[i], 
+              priordata$priorDistDensity[[i]], TRUE, priordata$priorDistPar1[i], priordata$priorDistPar2[i])
+        }
+    }
+    return(p)
+  },
+
+  # Evaluate the log likelihood
+  evaluateLogLikelihood = function(params, covariance) {
+    ll <- classEvaluateLogLikelihood$evaluateLogLikelihoodCppMonthly(params)
+    return(ll)
+  }
+)
+
+```
+
+
+First run of the model
+
+```{r}
+
+settingsPT <-  list(
+  numberChainRuns = 3,
+  numberTempChains = 20,
+  iterations = 100000,
+  burninPosterior = 25000,
+  thin = 10,
+  consoleUpdates = 100,
+  numberFittedPar = noPar, 
+  onAdaptiveCov = TRUE,
+  updatesAdaptiveCov = 1,
+  burninAdaptiveCov = 10000,
+  onAdaptiveTemp = TRUE,
+  updatesAdaptiveTemp = 1,
+  onDebug = FALSE,
+  lowerParBounds = priordata$fit.par$lowerParSupport,
+  upperParBounds = priordata$fit.par$upperParSupport
+)
+
+output1 <- ptmc_func(model, settingsPT)
+save(output1, file = here::here("data", "resceu", "posteriors.RData"))
+
+
+```
+
+Doesn't look like it's converged? Run script below to continue the run
+
+```{r}
+
+load(file = here::here("data", "resceu", "posteriors.RData"))
+
+settingsPTboost <-  list(
+  numberChainRuns = 3,
+  numberTempChains = 20,
+  iterations = 100000,
+  burninPosterior = 0,
+  thin = 10,
+  consoleUpdates = 100,
+  numberFittedPar = noPar,
+  onAdaptiveCov = TRUE,
+  updatesAdaptiveCov = 10,
+  burninAdaptiveCov = 1000,
+  onAdaptiveTemp = TRUE,
+  updatesAdaptiveTemp = 1,
+  onDebug = FALSE,
+  lowerParBounds = priordata$fit.par$lowerParSupport,
+  upperParBounds = priordata$fit.par$upperParSupport
+)
+
+output1 <- ptmc_func(model, settingsPTboost, output1[["outPTpar"]])
+save(output1, file = here::here("data", "resceu", "posteriors.RData"))
+
+```
